@@ -2,22 +2,56 @@ import torch
 import argparse
 from miner import Miner
 from minesweeper import Minesweeper
+import numpy
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--shape', type=str, default='easy', help='choose from easy, middle and hard')
 parser.add_argument('--epsilon', type=float, default=0.9, help='the probability to choose from memories')
-parser.add_argument('--memory_capacity', type=int, default=1000, help='the capacity of memories')
+parser.add_argument('--memory_capacity', type=int, default=50000, help='the capacity of memories')
 parser.add_argument('--target_replace_iter', type=int, default=100, help='the iter to update the target net')
 parser.add_argument('--batch_size', type=int, default=16, help='sample amount')
 parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
-parser.add_argument('--n_epochs', type=int, default=1000, help='training epoch number')
-parser.add_argument('--n_critic', type=int, default=50, help='evaluation point')
+parser.add_argument('--n_epochs', type=int, default=20000, help='training epoch number')
+parser.add_argument('--n_critic', type=int, default=100, help='evaluation point')
 parser.add_argument('--test', type=int, default=0, help='whether execute test')
 opt = parser.parse_args()
 print(opt)
 
 miner = Miner(opt.shape, opt.epsilon, opt.memory_capacity, opt.target_replace_iter, opt.batch_size, opt.lr)
 print('collecting experience...')
+
+
+def movingaverage(interval, window_size):
+    window = numpy.ones(int(window_size))/float(window_size)
+    return numpy.convolve(interval, window, 'same')
+
+def plot_durations(avg_rewards):
+    fig = plt.figure(2)
+    axes = plt.gca()
+    # axes.set_ylim([0, 500])
+    plt.clf()
+    plt.title('Training...')
+    plt.xlabel('Episode')
+    plt.ylabel('Evaluation Accuracy in percentage')
+    plt.plot(avg_rewards)
+    print(avg_rewards)
+    z = movingaverage(avg_rewards, 10)
+    print(z)
+    z = numpy.concatenate((numpy.zeros(10), z))
+    plt.plot(z)
+    plt.savefig('direct.png')
+    # Take 100 episode averages and plot them too
+    # if len(durations_t) >= 100:
+    #     means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
+    #     means = torch.cat((torch.zeros(99), means))
+    #     plt.plot(means.numpy())
+
+    #plt.pause(0.001)  # pause a bit so that plots are updated
+    # fig.canvas.flush_events()
+    # if is_ipython:
+    #     display.clear_output(wait=True)
+    #     display.display(plt.gcf())
 
 if opt.test:
     miner.load_params('eval.pth')
@@ -32,6 +66,7 @@ if opt.test:
 else:
     win_num = 0
     fail_num = 0
+    avg_rewards = []
     for epoch in range(opt.n_epochs):
         game = Minesweeper(opt.shape)
         game.action(0)
@@ -82,8 +117,9 @@ else:
             print('fail number:', fail_num)
             print('win rate:', win_num / (win_num + fail_num))
             print('total reward:', critic_r)
+            avg_rewards.append(win_num)
             win_num = 0
             fail_num = 0
             critic_r = 0
+    plot_durations(avg_rewards)
     miner.save_params()
-
