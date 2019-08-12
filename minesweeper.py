@@ -10,7 +10,7 @@ class Minesweeper(object):
 
         self.width = 8
         self.height = 8
-        self.n_mines =  random.randint(4, 8) #10 was too hard for the DQN to compute, following the computation of jhansen, different number of bombs to prevent overfitting
+        self.n_mines =  5 #10 was too hard for the DQN to compute
         self.uncleared_blocks = self.width * self.height - self.n_mines
 
         self.map = np.zeros((self.height, self.width)) 
@@ -53,7 +53,7 @@ class Minesweeper(object):
                           (i, j-1), (i, j+1),
                           (i+1, j-1), (i+1, j), (i+1, j+1)]
             for n in neighbours:
-                if n[0] == -1 or n[1] == -1 or n[0] >= self.height or n[1] >= self.width or self.mask[n[0]][n[1]] != 0:
+                if not self.is_in_range(n[0], n[1]) or self.mask[n[0]][n[1]] != 0:
                     continue
                 self.clear_empty_blocks(n[0], n[1])#recurse to check the other blocks
 

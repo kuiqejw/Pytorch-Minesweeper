@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--epsilon', type=float, default=0.9, help='the probability to choose from memories')
 parser.add_argument('--memory_capacity', type=int, default=50000, help='the capacity of memories')
 parser.add_argument('--target_replace_iter', type=int, default=100, help='the iter to update the target net')
-parser.add_argument('--batch_size', type=int, default=48, help='sample amount')
+parser.add_argument('--batch_size', type=int, default=16, help='sample amount')
 parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
 parser.add_argument('--n_epochs', type=int, default=20000, help='training epoch number')
 parser.add_argument('--n_critic', type=int, default=100, help='evaluation point')
@@ -94,7 +94,7 @@ else:
 
             ep_r += r
             if miner.memory_counter > opt.memory_capacity:
-                miner.learn()
+                miner.optimize_model()
                 if game.get_status() != 0:
                     print('Ep: ', epoch,
                           '| Ep_r: ', round(ep_r, 2))
@@ -117,7 +117,7 @@ else:
             win_num = 0
             fail_num = 0
             critic_r = 0
-    plot_durations(success, 'Accuracy','batch_size48direct.png' )
-    plot_durations(avg_rewards, 'Critic Reward','batch_size48reward.png' )
+            plot_durations(success, 'Accuracy','batch_size16_rmsprop_longdirect.png' )
+            plot_durations(avg_rewards, 'Critic Reward','batch_size16_rmsprop_longreward.png' )
 
     miner.save_params()

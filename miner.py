@@ -52,7 +52,7 @@ class Miner(object):
         self.learn_step_counter = 0
         self.memory_counter = 0
         self.memory = np.zeros((self.memory_capacity, self.out_length * 2 + 2))
-        self.optimizer = torch.optim.Adam(self.eval_net.parameters(), lr=0.001)
+        self.optimizer = torch.optim.RMSprop(self.eval_net.parameters(), lr=0.001)
         self.loss_func = nn.MSELoss()
 
     def choose_action(self, x):
@@ -92,7 +92,7 @@ class Miner(object):
         self.memory[index, :] = transition
         self.memory_counter += 1
 
-    def learn(self):
+    def optimize_model(self):
         if self.learn_step_counter % self.target_replace_iter == 0:
             self.target_net.load_state_dict(self.eval_net.state_dict())
         self.learn_step_counter += 1
@@ -123,7 +123,7 @@ class Miner(object):
         self.optimizer.step()
 
     def save_params(self):
-        torch.save(self.eval_net.state_dict(), 'eval.pth')
+        torch.save(self.eval_net.state_dict(), 'eval_rms2.pth')
 
     def load_params(self, path):
         self.eval_net.load_state_dict(torch.load(path))
@@ -132,4 +132,4 @@ class Miner(object):
 # x = torch.zeros((1, 8, 8))
 # miner.choose_action(x)
 # miner.store_transition(x, 1, 1, x)
-# miner.learn()
+# miner.learn()s
