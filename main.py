@@ -5,20 +5,23 @@ from minesweeper import Minesweeper
 import numpy
 import matplotlib.pyplot as plt
 
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--shape', type=str, default='easy', help='choose from easy, middle and hard')
 parser.add_argument('--epsilon', type=float, default=0.9, help='the probability to choose from memories')
 parser.add_argument('--memory_capacity', type=int, default=50000, help='the capacity of memories')
 parser.add_argument('--target_replace_iter', type=int, default=100, help='the iter to update the target net')
-parser.add_argument('--batch_size', type=int, default=16, help='sample amount')
+parser.add_argument('--batch_size', type=int, default=48, help='sample amount')
 parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
 parser.add_argument('--n_epochs', type=int, default=20000, help='training epoch number')
 parser.add_argument('--n_critic', type=int, default=100, help='evaluation point')
 parser.add_argument('--test', type=int, default=0, help='whether execute test')
+parser.add_argument('--conv', type=int, default=0, help = 'choose between linear and convolution')
 opt = parser.parse_args()
 print(opt)
 
-miner = Miner(opt.shape, opt.epsilon, opt.memory_capacity, opt.target_replace_iter, opt.batch_size, opt.lr)
+miner = Miner(opt.epsilon, opt.memory_capacity, opt.target_replace_iter, opt.batch_size, opt.lr, opt.conv)
 print('collecting experience...')
 
 
@@ -26,36 +29,26 @@ def movingaverage(interval, window_size):
     window = numpy.ones(int(window_size))/float(window_size)
     return numpy.convolve(interval, window, 'same')
 
-def plot_durations(avg_rewards):
+def plot_durations(success,ylabel, name):
     fig = plt.figure(2)
     axes = plt.gca()
     # axes.set_ylim([0, 500])
     plt.clf()
-    plt.title('Training...')
-    plt.xlabel('Episode')
-    plt.ylabel('Evaluation Accuracy in percentage')
-    plt.plot(avg_rewards)
-    print(avg_rewards)
-    z = movingaverage(avg_rewards, 10)
-    print(z)
+    plt.xlabel('Test Number')
+    plt.ylabel(ylabel)
+    plt.plot(success)
+    print(success)
+    z = movingaverage(success,10)
+    #chop off the remaining 10
+    z = z[:-10]
     z = numpy.concatenate((numpy.zeros(10), z))
     plt.plot(z)
-    plt.savefig('direct.png')
-    # Take 100 episode averages and plot them too
-    # if len(durations_t) >= 100:
-    #     means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-    #     means = torch.cat((torch.zeros(99), means))
-    #     plt.plot(means.numpy())
-
-    #plt.pause(0.001)  # pause a bit so that plots are updated
-    # fig.canvas.flush_events()
-    # if is_ipython:
-    #     display.clear_output(wait=True)
-    #     display.display(plt.gcf())
+    plt.savefig(name)
 
 if opt.test:
     miner.load_params('eval.pth')
-    game = Minesweeper(opt.shape)
+    game = Minesweeper()
+    #to be changed upon GUI
     game.action(0)
     s = game.get_state()
     game.show()
@@ -67,35 +60,37 @@ else:
     win_num = 0
     fail_num = 0
     avg_rewards = []
+    success = []
     for epoch in range(opt.n_epochs):
-        game = Minesweeper(opt.shape)
+        game = Minesweeper()
         game.action(0)
         s = game.get_state()
         if game.get_status() == 1:
-            continue
+            continue #gets out of the loop if all have been uncovered
         critic_r = 0
         ep_r = 0
         last_r = 0
+        # game.show()
         while True:
             a = miner.choose_action(s)
             game.action(a)
-            s_ = game.get_state()
-            status = game.get_status()
+            s_ = game.get_state() #returns the board with covered/uncovered/mine 
+            status = game.get_status() #-1 if mined, 1 if success, 0 otherwise
 
             progress = s_ - s
             if status == 1:
                 win_num += 1
-                r = 1
+                r = 1 #reward if won
             elif status == -1:
                 fail_num += 1
-                r = -1
+                r = -1#reward if loss
             elif progress.sum() != 0:
-                r = 0.9
+                r = 0.9 #some progress is made
             else:
-                r = -0.3
+                r = -0.3 #nothing
+            #we wanted to reward YOLO bombing as this is a proven strategy if stuck. 
 
-            if not (last_r == 0.3 and r == 0.3):
-                miner.store_transition(s, a, r, s_)
+            miner.store_transition(s, a, r, s_)
 
             ep_r += r
             if miner.memory_counter > opt.memory_capacity:
@@ -117,9 +112,12 @@ else:
             print('fail number:', fail_num)
             print('win rate:', win_num / (win_num + fail_num))
             print('total reward:', critic_r)
-            avg_rewards.append(win_num)
+            avg_rewards.append(critic_r)
+            success.append(win_num)
             win_num = 0
             fail_num = 0
             critic_r = 0
-    plot_durations(avg_rewards)
+    plot_durations(success, 'Accuracy','batch_size48direct.png' )
+    plot_durations(avg_rewards, 'Critic Reward','batch_size48reward.png' )
+
     miner.save_params()

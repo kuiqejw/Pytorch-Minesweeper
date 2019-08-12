@@ -2,26 +2,53 @@ import torch
 import random
 import numpy as np
 import torch.nn as nn
-from dqn import DQN
 
 
+board_size = 8
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+class DQN_CONV(nn.Module):
+    def __init__(self, out_length):
+        super(DQN_CONV, self).__init__()
+        self.conv1 = nn.Conv2d(1, 10, 3) #conv2d takes in nSamplesxnChannelsxHeightxWidth 
+        #N X M X 10 matrix. first  to 8th channel is the different no of mines, ninth has 1 if unknown, 0 otherwise
+        self.out = nn.Linear(360, out_length) #360 if boardsize = 8
+        self.relu = nn.ReLU()
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = x.view(x.size(0), -1)
+        out = self.out(x)
+        return out
+
+class DQN_LINEAR(nn.Module): #linear is really bad. 0;clmnpu
+    def __init__(self, n_states):
+        super(DQN_LINEAR, self).__init__()
+        # self.conv1 = nn.Conv2d(1,10,3) #starter to init N x M x2 channels
+
+        elf.conv1 = nn.Conv2d(1, 2, 3) #conv2d takes in nSamplesxnChannelsxHeightxWidth 
+        #N X M X 2 matrix. 1 if unknown, 0 otherwise
+        self.fc1 = nn.Linear(72, 512) #hidden units = 512
+        self.fc2 = nn.Linear(512, out_length)
+        self.relu = nn.ReLU()
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = x.view(x.size(0), -1)
+        x = self.fc1(x)
+        out = self.fc2(x)
+        return out
 class Miner(object):
-    def __init__(self, shape, epsilon, memory_capacity, target_replace_iter, batch_size, gamma):
-        self.shape = shape
-        self.epsilon = epsilon
+    def __init__(self, epsilon, memory_capacity, target_replace_iter, batch_size, gamma, conv_bool):
         self.memory_capacity = memory_capacity
         self.target_replace_iter = target_replace_iter
         self.batch_size = batch_size
         self.gamma = gamma
+        self.conv = conv_bool
+        self.epsilon = epsilon
 
-        if self.shape == 'easy':
-            self.out_length = 8 * 8
-        elif self.shape == 'middle':
-            self.out_length = 16 * 16
-        elif self.shape == 'hard':
-            self.out_length = 16 * 30
-
-        self.eval_net, self.target_net = DQN(self.out_length), DQN(self.out_length)
+        self.out_length = board_size**2
+        if self.conv == 0:
+            self.eval_net, self.target_net = DQN_CONV(self.out_length).to(device), DQN_CONV(self.out_length).to(device)
+        else:
+            self.eval_net, self.target_net = DQN_LINEAR(self.out_length).to(device), DQN_LINEAR(self.out_length).to(device)
         self.learn_step_counter = 0
         self.memory_counter = 0
         self.memory = np.zeros((self.memory_capacity, self.out_length * 2 + 2))
@@ -29,12 +56,29 @@ class Miner(object):
         self.loss_func = nn.MSELoss()
 
     def choose_action(self, x):
-        x = torch.FloatTensor(x)
-        x = torch.unsqueeze(x, 0)
-        x = torch.unsqueeze(x, 0)
+
+        #for DQN_CONV
+        if self.conv == 0:
+            x = torch.FloatTensor(x).to(device)
+        # # print(x.shape) gets a 8 x8 matrix
+
+            x = torch.unsqueeze(x, 0).to(device)#creates a singleton dimension
+        # # print(x.shape) #gets a 1 x 8 x8 
+            x = torch.unsqueeze(x, 0).to(device)#creates another singleton dimension
+        # print(x.shape) #gets a 1x1x8x8 
+
+
+        #for DQN_LINEAR
+        else:  
+            x = x.flatten()
+            x = torch.FloatTensor(x).to(device)
+        # print(x.shape) gets a 8 x8 matrix
         if random.random() < self.epsilon:
             actions = self.eval_net(x)
-            action = torch.max(actions, 1)[1].data.numpy()[0]
+            if self.conv == 0:
+                action = torch.max(actions, 1)[1].data.numpy()[0]
+            else:
+                _, action = torch.max(actions, 0)
         else:
             action = random.randint(1, self.out_length)
             action -= 1
@@ -55,16 +99,25 @@ class Miner(object):
 
         sample_index = random.sample(range(self.memory_capacity), self.batch_size)
         b_memory = self.memory[sample_index, :]
-        b_s = torch.FloatTensor(b_memory[:, :self.out_length]).reshape((self.batch_size, 1, 8, 8))
-        b_a = torch.LongTensor(b_memory[:, self.out_length:self.out_length+1].astype(int))
-        b_r = torch.FloatTensor(b_memory[:, self.out_length+1:self.out_length+2])
-        b_s_ = torch.FloatTensor(b_memory[:, -self.out_length:]).reshape((self.batch_size, 1, 8, 8))
 
-        q_eval = self.eval_net(b_s).gather(1, b_a)
-        q_next = self.target_net(b_s_).detach()
-        q_target = b_r + self.gamma * q_next.max(1)[0].view(self.batch_size, 1)
-        loss = self.loss_func(q_eval, q_target)
-
+        if self.conv == 0:
+            b_s = torch.FloatTensor(b_memory[:, :self.out_length]).reshape((self.batch_size, 1, board_size, board_size)).to(device)
+            b_a = torch.LongTensor(b_memory[:, self.out_length:self.out_length+1].astype(int)).to(device)
+            b_r = torch.FloatTensor(b_memory[:, self.out_length+1:self.out_length+2]).to(device)
+            b_s_ = torch.FloatTensor(b_memory[:, -self.out_length:]).reshape((self.batch_size, 1, board_size, board_size)).to(device)
+            q_eval = self.eval_net(b_s).gather(1, b_a).to(device)
+            q_next = self.target_net(b_s_).detach().to(device)
+            q_target = b_r + self.gamma * q_next.max(1)[0].view(self.batch_size, 1)
+            loss = self.loss_func(q_eval, q_target)
+        else:
+            b_s = torch.FloatTensor(b_memory[:, :self.out_length]).to(device)
+            b_a = torch.LongTensor(b_memory[:, self.out_length:self.out_length+1].astype(int)).to(device)
+            b_r = torch.FloatTensor(b_memory[:, self.out_length+1:self.out_length+2]).to(device)
+            b_s_ = torch.FloatTensor(b_memory[:, -self.out_length:]).to(device)
+            q_eval = self.eval_net(b_s).gather(1, b_a).to(device)
+            q_next = self.target_net(b_s_).detach().to(device)
+            q_target = b_r + self.gamma * q_next.max(1)[0].view(self.batch_size, 1)
+            loss = self.loss_func(q_eval, q_target)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
