@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--shape', type=str, default='easy', help='choose from easy, middle and hard')
 parser.add_argument('--epsilon', type=float, default=0.9, help='the probability to choose from memories')
 parser.add_argument('--memory_capacity', type=int, default=50000, help='the capacity of memories')
 parser.add_argument('--target_replace_iter', type=int, default=100, help='the iter to update the target net')
@@ -22,7 +21,7 @@ parser.add_argument('--conv', type=int, default=0, help = 'choose between linear
 opt = parser.parse_args()
 print(opt)
 
-miner = Miner(opt.shape, opt.epsilon, opt.memory_capacity, opt.target_replace_iter, opt.batch_size, opt.lr, opt.conv)
+miner = Miner(opt.epsilon, opt.memory_capacity, opt.target_replace_iter, opt.batch_size, opt.lr, opt.conv)
 print('collecting experience...')
 
 
@@ -30,26 +29,25 @@ def movingaverage(interval, window_size):
     window = numpy.ones(int(window_size))/float(window_size)
     return numpy.convolve(interval, window, 'same')
 
-def plot_durations(avg_rewards):
+def plot_durations(success,ylabel, name):
     fig = plt.figure(2)
     axes = plt.gca()
     # axes.set_ylim([0, 500])
     plt.clf()
-    plt.title('Training...')
-    plt.xlabel('Episode')
-    plt.ylabel('Evaluation Accuracy in percentage')
-    plt.plot(avg_rewards)
-    print(avg_rewards)
-    z = movingaverage(avg_rewards,10)
+    plt.xlabel('Test Number')
+    plt.ylabel(ylabel)
+    plt.plot(success)
+    print(success)
+    z = movingaverage(success,10)
     #chop off the remaining 10
     z = z[:-10]
     z = numpy.concatenate((numpy.zeros(10), z))
     plt.plot(z)
-    plt.savefig('direct.png')
+    plt.savefig(name)
 
 if opt.test:
     miner.load_params('eval.pth')
-    game = Minesweeper(opt.shape)
+    game = Minesweeper()
     #to be changed upon GUI
     game.action(0)
     s = game.get_state()
@@ -62,8 +60,9 @@ else:
     win_num = 0
     fail_num = 0
     avg_rewards = []
+    success = []
     for epoch in range(opt.n_epochs):
-        game = Minesweeper(opt.shape)
+        game = Minesweeper()
         game.action(0)
         s = game.get_state()
         if game.get_status() == 1:
@@ -95,7 +94,7 @@ else:
 
             ep_r += r
             if miner.memory_counter > opt.memory_capacity:
-                miner.learn()
+                miner.optimize_model()
                 if game.get_status() != 0:
                     print('Ep: ', epoch,
                           '| Ep_r: ', round(ep_r, 2))
@@ -113,9 +112,12 @@ else:
             print('fail number:', fail_num)
             print('win rate:', win_num / (win_num + fail_num))
             print('total reward:', critic_r)
-            avg_rewards.append(win_num)
+            avg_rewards.append(critic_r)
+            success.append(win_num)
             win_num = 0
             fail_num = 0
             critic_r = 0
-    plot_durations(avg_rewards)
+    plot_durations(success, 'Accuracy','batch_size16_rmspropdirect.png' )
+    plot_durations(avg_rewards, 'Critic Reward','batch_size16_rmspropreward.png' )
+
     miner.save_params()

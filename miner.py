@@ -4,14 +4,14 @@ import numpy as np
 import torch.nn as nn
 
 
-
+board_size = 8
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class DQN_CONV(nn.Module):
     def __init__(self, out_length):
         super(DQN_CONV, self).__init__()
         self.conv1 = nn.Conv2d(1, 10, 3) #conv2d takes in nSamplesxnChannelsxHeightxWidth 
         #N X M X 10 matrix. first  to 8th channel is the different no of mines, ninth has 1 if unknown, 0 otherwise
-        self.out = nn.Linear(360, out_length)
+        self.out = nn.Linear(360, out_length) #360 if boardsize = 8
         self.relu = nn.ReLU()
     def forward(self, x):
         x = self.relu(self.conv1(x))
@@ -19,41 +19,32 @@ class DQN_CONV(nn.Module):
         out = self.out(x)
         return out
 
-class DQN_LINEAR(nn.Module):
+class DQN_LINEAR(nn.Module): #linear is really bad. 0;clmnpu
     def __init__(self, n_states):
         super(DQN_LINEAR, self).__init__()
         # self.conv1 = nn.Conv2d(1,10,3) #starter to init N x M x2 channels
 
-        self.fc1 = nn.Linear(n_states, 288)
-        self.fc2 = nn.Linear(288, 220)
-        self.fc3 = nn.Linear(220, n_states) #0 to 63 actions that can be taken
-    def forward(self,x):
-        p = nn.ReLU()
-        # print('initial ', x.shape)
-        x = p(self.fc1(x))
-        # print('fc1', x.shape)
-        x = self.fc2(x)
-        # print('fc2', x.shape)
-        x = self.fc3(x)
-        # print('fc3', x.shape)
-        return x
-
+        elf.conv1 = nn.Conv2d(1, 2, 3) #conv2d takes in nSamplesxnChannelsxHeightxWidth 
+        #N X M X 2 matrix. 1 if unknown, 0 otherwise
+        self.fc1 = nn.Linear(72, 512) #hidden units = 512
+        self.fc2 = nn.Linear(512, out_length)
+        self.relu = nn.ReLU()
+    def forward(self, x):
+        x = self.relu(self.conv1(x))
+        x = x.view(x.size(0), -1)
+        x = self.fc1(x)
+        out = self.fc2(x)
+        return out
 class Miner(object):
-    def __init__(self, shape, epsilon, memory_capacity, target_replace_iter, batch_size, gamma, conv_bool):
-        self.shape = shape
-        self.epsilon = epsilon
+    def __init__(self, epsilon, memory_capacity, target_replace_iter, batch_size, gamma, conv_bool):
         self.memory_capacity = memory_capacity
         self.target_replace_iter = target_replace_iter
         self.batch_size = batch_size
         self.gamma = gamma
         self.conv = conv_bool
+        self.epsilon = epsilon
 
-        if self.shape == 'easy':
-            self.out_length = 8 * 8 #=64
-        elif self.shape == 'middle':
-            self.out_length = 16 * 16
-        elif self.shape == 'hard':
-            self.out_length = 24 * 24
+        self.out_length = board_size**2
         if self.conv == 0:
             self.eval_net, self.target_net = DQN_CONV(self.out_length).to(device), DQN_CONV(self.out_length).to(device)
         else:
@@ -61,7 +52,7 @@ class Miner(object):
         self.learn_step_counter = 0
         self.memory_counter = 0
         self.memory = np.zeros((self.memory_capacity, self.out_length * 2 + 2))
-        self.optimizer = torch.optim.Adam(self.eval_net.parameters(), lr=0.001)
+        self.optimizer = torch.optim.RMSprop(self.eval_net.parameters(), lr=0.001)
         self.loss_func = nn.MSELoss()
 
     def choose_action(self, x):
@@ -101,7 +92,7 @@ class Miner(object):
         self.memory[index, :] = transition
         self.memory_counter += 1
 
-    def learn(self):
+    def optimize_model(self):
         if self.learn_step_counter % self.target_replace_iter == 0:
             self.target_net.load_state_dict(self.eval_net.state_dict())
         self.learn_step_counter += 1
@@ -110,10 +101,10 @@ class Miner(object):
         b_memory = self.memory[sample_index, :]
 
         if self.conv == 0:
-            b_s = torch.FloatTensor(b_memory[:, :self.out_length]).reshape((self.batch_size, 1, 8, 8)).to(device)
+            b_s = torch.FloatTensor(b_memory[:, :self.out_length]).reshape((self.batch_size, 1, board_size, board_size)).to(device)
             b_a = torch.LongTensor(b_memory[:, self.out_length:self.out_length+1].astype(int)).to(device)
             b_r = torch.FloatTensor(b_memory[:, self.out_length+1:self.out_length+2]).to(device)
-            b_s_ = torch.FloatTensor(b_memory[:, -self.out_length:]).reshape((self.batch_size, 1, 8, 8)).to(device)
+            b_s_ = torch.FloatTensor(b_memory[:, -self.out_length:]).reshape((self.batch_size, 1, board_size, board_size)).to(device)
             q_eval = self.eval_net(b_s).gather(1, b_a).to(device)
             q_next = self.target_net(b_s_).detach().to(device)
             q_target = b_r + self.gamma * q_next.max(1)[0].view(self.batch_size, 1)
@@ -132,7 +123,7 @@ class Miner(object):
         self.optimizer.step()
 
     def save_params(self):
-        torch.save(self.eval_net.state_dict(), 'eval.pth')
+        torch.save(self.eval_net.state_dict(), 'eval_rms.pth')
 
     def load_params(self, path):
         self.eval_net.load_state_dict(torch.load(path))
@@ -141,4 +132,4 @@ class Miner(object):
 # x = torch.zeros((1, 8, 8))
 # miner.choose_action(x)
 # miner.store_transition(x, 1, 1, x)
-# miner.learn()
+# miner.learn()s
